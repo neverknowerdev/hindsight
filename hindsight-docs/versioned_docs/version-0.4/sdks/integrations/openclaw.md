@@ -93,7 +93,7 @@ Optional settings in `~/.openclaw/openclaw.json`:
 - `bankMission` - Agent identity/purpose stored on the memory bank. Helps the memory engine understand context for better fact extraction during retain. Set once per bank on first use — not a recall prompt.
 - `dynamicBankId` - Enable per-context memory banks (default: `true`)
 - `bankIdPrefix` - Optional prefix for bank IDs (e.g. `"prod"` → `"prod-slack-C123"`)
-- `dynamicBankGranularity` - Fields used to derive bank ID: `agent`, `channel`, `user`, `provider` (default: `["agent", "channel", "user"]`)
+- `dynamicBankGranularity` - Fields used to derive bank ID: `agent`, `channel`, `user`, `provider`, `project` (default: `["agent", "channel", "user"]`)
 - `excludeProviders` - Message providers to skip for recall/retain (e.g. `["slack"]`, `["telegram"]`, `["discord"]`)
 - `autoRecall` - Auto-inject memories before each turn (default: `true`). Set to `false` when the agent has its own recall tool.
 - `autoRetain` - Auto-retain conversations after each turn (default: `true`)

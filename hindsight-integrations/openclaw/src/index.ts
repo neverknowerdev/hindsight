@@ -39,6 +39,9 @@ const RECALL_TIMEOUT_MS = 10_000;
 // blocks) so agent_end can look them up — event.messages in agent_end is clean history.
 const senderIdBySession = new Map<string, string>();
 
+// Cache project IDs discovered in before_prompt_build so agent_end can look them up
+const projectIdBySession = new Map<string, string>();
+
 // Guard against double hook registration on the same api instance
 // Uses a WeakSet so each api instance can only register hooks once
 const registeredApis = new WeakSet<object>();
@@ -216,6 +219,26 @@ export function extractSenderIdFromText(text: string): string | undefined {
     try {
       const obj = JSON.parse(match[1]);
       const id = obj?.sender_id ?? obj?.id;
+      if (id && typeof id === 'string') return id;
+    } catch {
+      // continue to next block
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract project ID from OpenClaw's injected inbound metadata blocks.
+ * Checks both "project", "projectId", and "team" fields.
+ */
+export function extractProjectIdFromText(text: string): string | undefined {
+  if (!text) return undefined;
+  const metaBlockRe = /[\w\s]+\(untrusted metadata\)[^\n]*\n```json\n([\s\S]*?)\n```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = metaBlockRe.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(match[1]);
+      const id = obj?.projectId ?? obj?.project ?? obj?.team;
       if (id && typeof id === 'string') return id;
     } catch {
       // continue to next block
@@ -450,10 +473,10 @@ export function deriveBankId(ctx: PluginHookAgentContext | undefined, pluginConf
   const fields = pluginConfig.dynamicBankGranularity?.length ? pluginConfig.dynamicBankGranularity : ['agent', 'channel', 'user'];
 
   // Validate field names at runtime — typos silently produce 'unknown' segments
-  const validFields = new Set(['agent', 'channel', 'user', 'provider']);
+  const validFields = new Set(['agent', 'channel', 'user', 'provider', 'project']);
   for (const f of fields) {
     if (!validFields.has(f)) {
-      console.warn(`[Hindsight] Unknown dynamicBankGranularity field "${f}" — will resolve to "unknown" in bank ID. Valid fields: agent, channel, user, provider`);
+      console.warn(`[Hindsight] Unknown dynamicBankGranularity field "${f}" — will resolve to "unknown" in bank ID. Valid fields: agent, channel, user, provider, project`);
     }
   }
 
@@ -465,11 +488,16 @@ export function deriveBankId(ctx: PluginHookAgentContext | undefined, pluginConf
     debug('[Hindsight] senderId not available in context — bank ID will use "anonymous". Ensure your OpenClaw provider passes senderId.');
   }
 
+  if (fields.includes('project') && ctx && !ctx.projectId) {
+    debug('[Hindsight] projectId not available in context — bank ID will use "default". Ensure your OpenClaw provider passes projectId or team.');
+  }
+
   const fieldMap: Record<string, string> = {
     agent: ctx?.agentId || sessionParsed.agentId || 'default',
     channel: ctx?.channelId || sessionParsed.channel || 'unknown',
     user: ctx?.senderId || 'anonymous',
     provider: ctx?.messageProvider || sessionParsed.provider || 'unknown',
+    project: ctx?.projectId || 'default',
   };
 
   const baseBankId = fields
@@ -1039,20 +1067,37 @@ export default function (api: MoltbotPluginAPI) {
 
         // Derive bank ID from context — enrich ctx.senderId from the inbound metadata
         // block when it's missing (agent-phase hooks don't carry senderId in ctx directly).
-        const senderIdFromPrompt = !ctx?.senderId ? extractSenderIdFromText(event.prompt ?? event.rawMessage ?? '') : undefined;
-        const effectiveCtxForRecall = senderIdFromPrompt ? { ...ctx, senderId: senderIdFromPrompt } : ctx;
 
-        // Cache the resolved sender ID keyed by sessionKey so agent_end can use it.
-        // event.messages in agent_end is clean history without the metadata blocks.
+        const senderIdFromPrompt = !ctx?.senderId ? extractSenderIdFromText(event.prompt ?? event.rawMessage ?? '') : undefined;
+        const projectIdFromPrompt = !ctx?.projectId ? extractProjectIdFromText(event.prompt ?? event.rawMessage ?? '') : undefined;
+
+        const effectiveCtxForRecall = {
+          ...ctx,
+          ...(senderIdFromPrompt && { senderId: senderIdFromPrompt }),
+          ...(projectIdFromPrompt && { projectId: projectIdFromPrompt }),
+        };
+
         const resolvedSenderId = effectiveCtxForRecall?.senderId;
+        const resolvedProjectId = effectiveCtxForRecall?.projectId;
         const sessionKeyForCache = ctx?.sessionKey;
-        if (resolvedSenderId && sessionKeyForCache) {
-          senderIdBySession.set(sessionKeyForCache, resolvedSenderId);
-          if (senderIdBySession.size > MAX_TRACKED_SESSIONS) {
-            const oldest = senderIdBySession.keys().next().value;
-            if (oldest) senderIdBySession.delete(oldest);
+
+        if (sessionKeyForCache) {
+          if (resolvedSenderId) {
+            senderIdBySession.set(sessionKeyForCache, resolvedSenderId);
+            if (senderIdBySession.size > MAX_TRACKED_SESSIONS) {
+              const oldest = senderIdBySession.keys().next().value;
+              if (oldest) senderIdBySession.delete(oldest);
+            }
+          }
+          if (resolvedProjectId) {
+            projectIdBySession.set(sessionKeyForCache, resolvedProjectId);
+            if (projectIdBySession.size > MAX_TRACKED_SESSIONS) {
+              const oldest = projectIdBySession.keys().next().value;
+              if (oldest) projectIdBySession.delete(oldest);
+            }
           }
         }
+
 
         const bankId = deriveBankId(effectiveCtxForRecall, pluginConfig);
         debug(`[Hindsight] before_prompt_build - bank: ${bankId}, channel: ${ctx?.messageProvider}/${ctx?.channelId}`);
@@ -1174,11 +1219,21 @@ ${memoriesFormatted}
         // Derive bank ID from context — enrich ctx.senderId from the session cache.
         // event.messages in agent_end is clean history without OpenClaw's metadata blocks;
         // the sender ID was captured during before_prompt_build where event.prompt has them.
+
         const sessionKeyForLookup = effectiveCtx?.sessionKey;
         const senderIdFromCache = !effectiveCtx?.senderId && sessionKeyForLookup
           ? senderIdBySession.get(sessionKeyForLookup)
           : undefined;
-        const effectiveCtxForRetain = senderIdFromCache ? { ...effectiveCtx, senderId: senderIdFromCache } : effectiveCtx;
+        const projectIdFromCache = !effectiveCtx?.projectId && sessionKeyForLookup
+          ? projectIdBySession.get(sessionKeyForLookup)
+          : undefined;
+
+        const effectiveCtxForRetain = {
+          ...effectiveCtx,
+          ...(senderIdFromCache && { senderId: senderIdFromCache }),
+          ...(projectIdFromCache && { projectId: projectIdFromCache }),
+        };
+
         const bankId = deriveBankId(effectiveCtxForRetain, pluginConfig);
         debug(`[Hindsight Hook] agent_end triggered - bank: ${bankId}`);
 
