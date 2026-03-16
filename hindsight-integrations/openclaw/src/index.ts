@@ -245,19 +245,30 @@ export function extractSenderIdFromText(text: string): string | undefined {
  */
 export function extractHindsightTagsFromText(text: string): string[] | undefined {
   if (!text) return undefined;
-  // Look for any JSON blocks that might contain the metadata
-  const metaBlockRe = /```json\n([\s\S]*?)\n```/gi;
+
+  // We can safely parse JSON blocks using a regex
+  // Looking for ```json blocks but ensuring we gracefully handle errors
+  const metaBlockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/gi;
   let match: RegExpExecArray | null;
+
   while ((match = metaBlockRe.exec(text)) !== null) {
     try {
+      // The matched group might contain arbitrary JSON
       const obj = JSON.parse(match[1]);
-      const tags = obj?.hindsightTags;
-      if (Array.isArray(tags)) {
-        // filter out non-string tags and return
-        return tags.filter(t => typeof t === 'string');
+
+      // Look for the specific hindsightTags key
+      if (obj && typeof obj === 'object' && 'hindsightTags' in obj) {
+        const tags = obj.hindsightTags;
+        if (Array.isArray(tags)) {
+          // filter out non-string tags and return immediately upon finding the first valid block
+          const stringTags = tags.filter(t => typeof t === 'string');
+          if (stringTags.length > 0) {
+            return stringTags;
+          }
+        }
       }
     } catch {
-      // continue to next block
+      // Not valid JSON or parsing failed, continue to next block
     }
   }
   return undefined;

@@ -457,3 +457,71 @@ Conversation info (untrusted metadata):
       expect(tags).toBeUndefined();
     });
   });
+
+  describe('extractHindsightTagsFromText extended', () => {
+    it('returns tags with bare ```json block', () => {
+
+      const text = `
+Here is some text
+\`\`\`json
+{
+  "hindsightTags": ["proj-1", "user-2"]
+}
+\`\`\`
+And some more text
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toEqual(['proj-1', 'user-2']);
+    });
+
+    it('returns tags when json block has no language specified', () => {
+
+      const text = `
+\`\`\`
+{
+  "hindsightTags": ["tag-1"]
+}
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toEqual(['tag-1']);
+    });
+
+    it('returns undefined if the json is invalid', () => {
+
+      const text = `
+\`\`\`json
+{
+  "hindsightTags": ["tag-1" // missing closing bracket and brace
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toBeUndefined();
+    });
+
+    it('returns undefined if hindsightTags is not an array', () => {
+
+      const text = `
+\`\`\`json
+{
+  "hindsightTags": "tag-1"
+}
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toBeUndefined();
+    });
+
+    it('filters out non-string tags', () => {
+
+      const text = `
+\`\`\`json
+{
+  "hindsightTags": ["valid", 123, null, "also-valid"]
+}
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toEqual(['valid', 'also-valid']);
+    });
+  });
