@@ -92,7 +92,8 @@
             "agent",
             "channel",
             "user",
-            "provider"
+            "provider",
+            "project"
           ]
         },
         "description": "Fields used to derive bank ID. Controls memory isolation granularity. Default: ['agent', 'channel', 'user'].",
@@ -139,7 +140,11 @@
       "recallBudget": {
         "type": "string",
         "description": "Recall effort level. Higher budgets use more retrieval strategies for better results but take longer.",
-        "enum": ["low", "mid", "high"],
+        "enum": [
+          "low",
+          "mid",
+          "high"
+        ],
         "default": "mid"
       },
       "recallMaxTokens": {
@@ -152,19 +157,34 @@
         "type": "array",
         "items": {
           "type": "string",
-          "enum": ["world", "experience", "observation"]
+          "enum": [
+            "world",
+            "experience",
+            "observation"
+          ]
         },
         "description": "Memory types to recall. Defaults to ['world', 'experience'] — excludes verbose observation entries.",
-        "default": ["world", "experience"]
+        "default": [
+          "world",
+          "experience"
+        ]
       },
       "recallRoles": {
         "type": "array",
         "items": {
           "type": "string",
-          "enum": ["user", "assistant", "system", "tool"]
+          "enum": [
+            "user",
+            "assistant",
+            "system",
+            "tool"
+          ]
         },
         "description": "Roles to include when composing contextual recall query. Default: ['user', 'assistant'].",
-        "default": ["user", "assistant"]
+        "default": [
+          "user",
+          "assistant"
+        ]
       },
       "recallContextTurns": {
         "type": "integer",
