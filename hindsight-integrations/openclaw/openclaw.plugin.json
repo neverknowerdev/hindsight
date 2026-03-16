@@ -92,7 +92,8 @@
             "agent",
             "channel",
             "user",
-            "provider"
+            "provider",
+            "gatewayTags"
           ]
         },
         "description": "Fields used to derive bank ID. Controls memory isolation granularity. Default: ['agent', 'channel', 'user'].",
