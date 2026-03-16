@@ -232,11 +232,21 @@ export function extractSenderIdFromText(text: string): string | undefined {
  */
 /**
  * Extract hindsightTags from OpenClaw's injected inbound metadata blocks.
+ *
+ * Example of expected format injected by OpenClaw Gateway:
+ *
+ * ```json
+ * {
+ *   "hindsightTags": ["project-1", "org-2"]
+ * }
+ * ```
+ *
  * Returns an array of tags, or undefined if not found.
  */
 export function extractHindsightTagsFromText(text: string): string[] | undefined {
   if (!text) return undefined;
-  const metaBlockRe = /[\w\s]+\(untrusted metadata\)[^\n]*\n```json\n([\s\S]*?)\n```/gi;
+  // Look for any JSON blocks that might contain the metadata
+  const metaBlockRe = /```json\n([\s\S]*?)\n```/gi;
   let match: RegExpExecArray | null;
   while ((match = metaBlockRe.exec(text)) !== null) {
     try {
