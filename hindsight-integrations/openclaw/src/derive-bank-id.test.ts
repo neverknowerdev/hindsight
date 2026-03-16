@@ -110,4 +110,10 @@ describe('deriveBankId', () => {
     expect(bankId1).toBe('a%3A%3Ab::c::user-1');
     expect(bankId2).toBe('a::b%3A%3Ac::user-1');
   });
+
+  it('should support ["gatewayTags"] isolation field', () => {
+    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ['gatewayTags'] };
+    const bankId = deriveBankId(ctx, config);
+    expect(bankId).toBe('unknown'); // The value for 'gatewayTags' in the context string derivation will just return 'unknown' as it's not a field mapped in deriveBankId strings, it affects runtime tags.
+  });
 });

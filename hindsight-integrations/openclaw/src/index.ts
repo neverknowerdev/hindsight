@@ -38,6 +38,8 @@ const RECALL_TIMEOUT_MS = 10_000;
 // Cache sender IDs discovered in before_prompt_build (where event.prompt has the metadata
 // blocks) so agent_end can look them up — event.messages in agent_end is clean history.
 const senderIdBySession = new Map<string, string>();
+// Cache extracted gateway tags discovered in before_prompt_build
+const tagsBySession = new Map<string, string[]>();
 
 // Guard against double hook registration on the same api instance
 // Uses a WeakSet so each api instance can only register hooks once
@@ -228,6 +230,29 @@ export function extractSenderIdFromText(text: string): string | undefined {
  * Strip OpenClaw sender/conversation metadata envelopes from message content.
  * These blocks are injected by OpenClaw but are noise for memory storage and recall.
  */
+/**
+ * Extract hindsightTags from OpenClaw's injected inbound metadata blocks.
+ * Returns an array of tags, or undefined if not found.
+ */
+export function extractHindsightTagsFromText(text: string): string[] | undefined {
+  if (!text) return undefined;
+  const metaBlockRe = /[\w\s]+\(untrusted metadata\)[^\n]*\n```json\n([\s\S]*?)\n```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = metaBlockRe.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(match[1]);
+      const tags = obj?.hindsightTags;
+      if (Array.isArray(tags)) {
+        // filter out non-string tags and return
+        return tags.filter(t => typeof t === 'string');
+      }
+    } catch {
+      // continue to next block
+    }
+  }
+  return undefined;
+}
+
 export function stripMetadataEnvelopes(content: string): string {
   // Strip: ---\n<Label> (untrusted metadata):\n```json\n{...}\n```\n<message>\n---
   content = content.replace(/^---\n[\w\s]+\(untrusted metadata\)[^\n]*\n```json[\s\S]*?```\n\n?/im, '').replace(/\n---$/, '');
@@ -450,10 +475,10 @@ export function deriveBankId(ctx: PluginHookAgentContext | undefined, pluginConf
   const fields = pluginConfig.dynamicBankGranularity?.length ? pluginConfig.dynamicBankGranularity : ['agent', 'channel', 'user'];
 
   // Validate field names at runtime — typos silently produce 'unknown' segments
-  const validFields = new Set(['agent', 'channel', 'user', 'provider']);
+  const validFields = new Set(['agent', 'channel', 'user', 'provider', 'gatewayTags']);
   for (const f of fields) {
     if (!validFields.has(f)) {
-      console.warn(`[Hindsight] Unknown dynamicBankGranularity field "${f}" — will resolve to "unknown" in bank ID. Valid fields: agent, channel, user, provider`);
+      console.warn(`[Hindsight] Unknown dynamicBankGranularity field "${f}" — will resolve to "unknown" in bank ID. Valid fields: agent, channel, user, provider, gatewayTags`);
     }
   }
 
@@ -1054,6 +1079,21 @@ export default function (api: MoltbotPluginAPI) {
           }
         }
 
+        const tagsFromPrompt = extractHindsightTagsFromText(event.prompt ?? event.rawMessage ?? '');
+        let hindsightTags: string[] | undefined = undefined;
+        if (pluginConfig.dynamicBankGranularity?.includes('gatewayTags') && tagsFromPrompt && tagsFromPrompt.length > 0) {
+          hindsightTags = tagsFromPrompt;
+        }
+
+        if (hindsightTags && sessionKeyForCache) {
+          tagsBySession.set(sessionKeyForCache, hindsightTags);
+          if (tagsBySession.size > MAX_TRACKED_SESSIONS) {
+            const oldest = tagsBySession.keys().next().value;
+            if (oldest) tagsBySession.delete(oldest);
+          }
+        }
+
+
         const bankId = deriveBankId(effectiveCtxForRecall, pluginConfig);
         debug(`[Hindsight] before_prompt_build - bank: ${bankId}, channel: ${ctx?.messageProvider}/${ctx?.channelId}`);
         debug(`[Hindsight] event keys: ${Object.keys(event).join(', ')}`);
@@ -1113,7 +1153,7 @@ export default function (api: MoltbotPluginAPI) {
           debug(`[Hindsight] Reusing in-flight recall for bank ${bankId}`);
           recallPromise = existing;
         } else {
-          recallPromise = client.recall({ query: prompt, max_tokens: pluginConfig.recallMaxTokens || 1024, budget: pluginConfig.recallBudget, types: pluginConfig.recallTypes }, RECALL_TIMEOUT_MS);
+          recallPromise = client.recall({ query: prompt, max_tokens: pluginConfig.recallMaxTokens || 1024, budget: pluginConfig.recallBudget, types: pluginConfig.recallTypes, tags: hindsightTags }, RECALL_TIMEOUT_MS);
           inflightRecalls.set(recallKey, recallPromise);
           void recallPromise.catch(() => {}).finally(() => inflightRecalls.delete(recallKey));
         }
@@ -1180,6 +1220,11 @@ ${memoriesFormatted}
           : undefined;
         const effectiveCtxForRetain = senderIdFromCache ? { ...effectiveCtx, senderId: senderIdFromCache } : effectiveCtx;
         const bankId = deriveBankId(effectiveCtxForRetain, pluginConfig);
+
+        let hindsightTags: string[] | undefined = undefined;
+        if (pluginConfig.dynamicBankGranularity?.includes('gatewayTags') && sessionKeyForLookup) {
+          hindsightTags = tagsBySession.get(sessionKeyForLookup);
+        }
         debug(`[Hindsight Hook] agent_end triggered - bank: ${bankId}`);
 
         if (event.success === false) {
@@ -1263,6 +1308,7 @@ ${memoriesFormatted}
         await client.retain({
           content: transcript,
           document_id: documentId,
+          tags: hindsightTags,
           metadata: {
             retained_at: new Date().toISOString(),
             message_count: String(messageCount),

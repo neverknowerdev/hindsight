@@ -140,6 +140,7 @@ export class HindsightClient {
         content: request.content,
         document_id: request.document_id || 'conversation',
         metadata: request.metadata,
+        tags: request.tags,
       }],
       async: true,
     };
@@ -181,6 +182,11 @@ export class HindsightClient {
 
       const [cmd, ...baseArgs] = this.getEmbedCommand();
       const args = [...baseArgs, '--profile', 'openclaw', 'memory', 'retain-files', this.bankId, tempFile, '--async'];
+      if (request.tags && request.tags.length > 0) {
+        request.tags.forEach(tag => {
+          args.push('--tags', tag);
+        });
+      }
 
       const { stdout } = await execFileAsync(cmd, args, { maxBuffer: MAX_BUFFER });
       console.log(`[Hindsight] Retained (async): ${stdout.trim()}`);
@@ -218,6 +224,9 @@ export class HindsightClient {
       query,
       max_tokens: request.max_tokens || 1024,
     };
+    if (request.tags && request.tags.length > 0) {
+      body.tags = request.tags;
+    }
     if (request.budget) {
       body.budget = request.budget;
     }
@@ -245,6 +254,11 @@ export class HindsightClient {
     const maxTokens = request.max_tokens || 1024;
     const [cmd, ...baseArgs] = this.getEmbedCommand();
     const args = [...baseArgs, '--profile', 'openclaw', 'memory', 'recall', this.bankId, query, '--output', 'json', '--max-tokens', String(maxTokens)];
+    if (request.tags && request.tags.length > 0) {
+      request.tags.forEach(tag => {
+        args.push('--tags', tag);
+      });
+    }
 
     try {
       const { stdout } = await execFileAsync(cmd, args, {

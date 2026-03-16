@@ -93,7 +93,7 @@ Optional settings in `~/.openclaw/openclaw.json`:
 - `bankMission` - Agent identity/purpose stored on the memory bank. Helps the memory engine understand context for better fact extraction during retain. Set once per bank on first use — not a recall prompt.
 - `dynamicBankId` - Enable per-context memory banks (default: `true`)
 - `bankIdPrefix` - Optional prefix for bank IDs (e.g. `"prod"` → `"prod-slack-C123"`)
-- `dynamicBankGranularity` - Fields used to derive bank ID: `agent`, `channel`, `user`, `provider` (default: `["agent", "channel", "user"]`)
+- `dynamicBankGranularity` - Fields used to derive bank ID: `agent`, `channel`, `user`, `provider`, `gatewayTags` (default: `["agent", "channel", "user"]`). Include `gatewayTags` if you want to support passing `hindsightTags` via OpenClaw Gateway metadata.
 - `excludeProviders` - Message providers to skip for recall/retain (e.g. `["slack"]`, `["telegram"]`, `["discord"]`)
 - `autoRecall` - Auto-inject memories before each turn (default: `true`). Set to `false` when the agent has its own recall tool.
 - `autoRetain` - Auto-retain conversations after each turn (default: `true`)
@@ -357,3 +357,40 @@ tail -f /tmp/openclaw/openclaw-*.log | grep Hindsight
 # [Hindsight] Retained X messages for session ...
 # [Hindsight] Auto-recall: Injecting X memories
 ```
+
+### Memory Isolation with Gateway Tags
+
+If you are building an AI organization where multiple agents work for different organizations or projects, you may need to divide the memory bank based on metadata parameters rather than strictly by the user or channel.
+
+You can accomplish this using the `hindsightTags` parameter in the OpenClaw Gateway metadata and adding `gatewayTags` to your `dynamicBankGranularity`.
+
+In your OpenClaw payload template JSON:
+
+```json
+{
+  "agentId": "remote-agent-123",
+  "metadata": {
+    "hindsightTags": ["project-1", "org-2"]
+  }
+}
+```
+
+In your `openclaw.json` plugin configuration:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "hindsight-openclaw": {
+        "enabled": true,
+        "config": {
+          "dynamicBankId": true,
+          "dynamicBankGranularity": ["agent", "channel", "user", "gatewayTags"]
+        }
+      }
+    }
+  }
+}
+```
+
+When `gatewayTags` is enabled, the Hindsight Memory plugin automatically extracts the tags from the gateway metadata block and passes them to Hindsight to restrict memories strictly to those tagged areas, allowing multiple projects to seamlessly share agents without context bleeding across isolated environments.

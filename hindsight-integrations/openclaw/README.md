@@ -47,7 +47,7 @@ Optional settings in `~/.openclaw/openclaw.json` under `plugins.entries.hindsigh
 | `llmApiKeyEnv` | provider standard env var | Custom env var name for the provider API key |
 | `dynamicBankId` | `true` | Enable per-context memory banks |
 | `bankIdPrefix` | — | Prefix for bank IDs (e.g. `"prod"`) |
-| `dynamicBankGranularity` | `["agent", "channel", "user"]` | Fields used to derive bank ID. Options: `agent`, `channel`, `user`, `provider` |
+| `dynamicBankGranularity` | `["agent", "channel", "user"]` | Fields used to derive bank ID. Options: `agent`, `channel`, `user`, `provider`, `gatewayTags` |
 | `excludeProviders` | `[]` | Message providers to skip for recall/retain (e.g. `slack`, `telegram`, `discord`) |
 | `autoRecall` | `true` | Auto-inject memories before each turn. Set to `false` when the agent has its own recall tool. |
 | `autoRetain` | `true` | Auto-retain conversations after each turn |
@@ -114,3 +114,7 @@ uvx hindsight-embed@latest profile list
 ## License
 
 MIT
+
+### Support for Gateway Tags
+
+You can divide memories across organizations or projects if using OpenClaw via Gateway by including `gatewayTags` in the `dynamicBankGranularity` configuration. Pass the `hindsightTags` array as metadata in the OpenClaw Gateway JSON payload template, and the Hindsight Memory Plugin will extract and apply them to all read/write operations for that session.

@@ -425,3 +425,35 @@ describe('truncateRecallQuery', () => {
     expect(truncated.length).toBeLessThanOrEqual(180);
   });
 });
+
+  import { extractHindsightTagsFromText } from './index.js';
+
+describe('extractHindsightTagsFromText', () => {
+    it('returns tags when present in metadata block', () => {
+
+      const text = `
+Conversation info (untrusted metadata):
+\`\`\`json
+{
+  "hindsightTags": ["proj-1", "user-2"]
+}
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toEqual(['proj-1', 'user-2']);
+    });
+
+    it('returns undefined when not present', () => {
+
+      const text = `
+Conversation info (untrusted metadata):
+\`\`\`json
+{
+  "sender_id": "abc"
+}
+\`\`\`
+`;
+      const tags = extractHindsightTagsFromText(text);
+      expect(tags).toBeUndefined();
+    });
+  });
